@@ -133,6 +133,18 @@ local function HowlSummonReady()
   return Player:BuffUp(S.HowlBearBuff) or Player:BuffUp(S.HowlBoarBuff) or Player:BuffUp(S.HowlWyvernBuff)
 end
 
+local function EvaluateBlackArrowCotWTick()
+  if Player:BuffUp(S.CalloftheWildBuff) then
+    local remains = Player:BuffRemains(S.CalloftheWildBuff)
+    for _, mark in ipairs({16, 12, 8, 4, 0}) do
+      if math.abs(remains - mark) <= Player:GCD() then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 --- ===== CastTargetIf Filter Functions =====
 local function EvaluateTargetIfFilterBarbedShot(TargetUnit)
   -- target_if=min:dot.barbed_shot.remains
@@ -262,20 +274,31 @@ local function DRCleave()
 end
 
 local function DRST()
+  -- Reccomend Black Arrow before it is available based on COTW Ticks
+  if EvaluateBlackArrowCotWTick() then
+    if Cast(S.BlackArrow, nil, nil, not Target:IsSpellInRange(S.BlackArrow)) then return "kill_shot COTW Override"; end
+  end
+  -- Barbed_Shot fallback to maintain frenzy at all costs
+  if S.BarbedShot:IsCastable() and (Pet:BuffRemains(S.FrenzyPetBuff) <= Player:GCD() + 0.5) then
+    if Cast(S.BarbedShot, nil, nil, not Target:IsSpellInRange(S.BarbedShot)) then return "barbed_shot Fallback"; end
+  end
   -- kill_shot
   if S.BlackArrow:IsReady() then
     if Cast(S.BlackArrow, nil, nil, not Target:IsSpellInRange(S.BlackArrow)) then return "kill_shot dr_st 2"; end
   end
   -- bestial_wrath,if=cooldown.call_of_the_wild.remains>20|!talent.call_of_the_wild
+  -- This is modeled as 20seconds in the APL but guides state to hold for up to 25 - Investigate?
   if S.BestialWrath:IsReady() and (S.CalloftheWild:CooldownRemains() > 20 or not S.CalloftheWild:IsAvailable()) then
     if Cast(S.BestialWrath, Settings.BeastMastery.GCDasOffGCD.BestialWrath) then return "bestial_wrath dr_st 4"; end
   end
   -- barbed_shot,target_if=min:dot.barbed_shot.remains,if=full_recharge_time<gcd
-  if S.BarbedShot:IsCastable() and (S.BarbedShot:FullRechargeTime() < Player:GCD()) then
+  -- or if BW has <= 12 second CD remaining
+  if S.BarbedShot:IsCastable() and ((S.BarbedShot:FullRechargeTime() < Player:GCD()) or (S.BestialWrath:CooldownRemains() <= 12)) then
     if Everyone.CastTargetIf(S.BarbedShot, Enemies40y, "min", EvaluateTargetIfFilterBarbedShot, nil, not Target:IsSpellInRange(S.BarbedShot)) then return "barbed_shot dr_st 6"; end
   end
   -- bloodshed
-  if S.Bloodshed:IsCastable() then
+  -- Added conditional for CDsOn()
+  if CDsON() and S.Bloodshed:IsCastable() then
     if Cast(S.Bloodshed, Settings.BeastMastery.GCDasOffGCD.Bloodshed, nil, not Target:IsSpellInRange(S.Bloodshed)) then return "bloodshed dr_st 8"; end
   end
   -- call_of_the_wild
